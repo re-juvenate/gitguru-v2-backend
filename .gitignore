@@ -4,5 +4,9 @@
 .venv/
 .env/
 
-data/
+# cache
 __pycache__
+
+# test data
+data/
+models/
