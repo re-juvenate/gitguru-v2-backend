@@ -1,5 +1,11 @@
 services:
 
+  gitguru-v2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    
+
   searxng:
     image: docker.io/searxng/searxng:latest
     restart: unless-stopped
