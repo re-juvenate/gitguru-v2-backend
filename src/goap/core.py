@@ -136,16 +136,17 @@ class Agent:
         return action
 
     def _plan(self):
-        actions = self._planner.plan(self.state, self.goals, self.actions)
-        empty_actions = self._planner.plan(self.state, [], self.actions)
-        actions.extend(empty_actions)
-        return actions
+        return self._planner.plan(self.state, self.goals, self.actions)
 
     def run(self):
-        actions = self._plan()
-        print("Plan:", actions)
-        for action in actions:
-            action(self.state)
+        while self.goals:
+            actions = self._plan()
+            print("Plan:", actions)
+            for action in actions:
+                action(self.state)
+            for goal in self.goals:
+                if goal.evaluate(self.state):
+                    self.goals.remove(goal)
 
 if __name__ == "__main__":
     # Test
@@ -166,7 +167,6 @@ if __name__ == "__main__":
     @action1.affects("value")
     def effect_increment_value(value):
         return value + 1
-
 
 
     # Define a goal
