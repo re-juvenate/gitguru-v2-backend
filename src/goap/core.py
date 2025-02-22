@@ -1,5 +1,5 @@
 import asyncio
-from dis import disco
+import heapq
 from functools import partial
 from typing import Callable, Awaitable
 
@@ -120,6 +120,72 @@ class Planner:
     def plan(self, current_state: State, goals: list[Goal], actions: list[Action]):
         return actions
 
+class Planner:
+    def __init__(self, name: str):
+        self.name = name
+
+    def plan(self, current_state: State, goals: list[Goal], actions: list[Action]) -> list[Action]:
+        """
+        Returns a sequence of actions that transforms current_state into a state
+        that satisfies one of the goals. This implementation uses an A* search algorithm.
+        """
+        # If no goals, nothing to plan
+        if not goals:
+            return []
+
+        # For simplicity, pick the first unsatisfied goal.
+        target_goal = None
+        for goal in goals:
+            if not goal.evaluate(current_state):
+                target_goal = goal
+                break
+
+        # If all goals are already satisfied
+        if target_goal is None:
+            return []
+
+        # Each entry in the open set is a tuple (f, g, state, plan)
+        # f = total estimated cost, g = cost so far, state = current state, plan = actions taken.
+        open_set = []
+        closed_set = set()
+
+        # Start node
+        start_state = current_state.substate()
+        start_h = target_goal.goal_distance(start_state)
+        start_node = (start_h, 0, start_state, [])
+        heapq.heappush(open_set, start_node)
+
+        while open_set:
+            f, g, state, plan = heapq.heappop(open_set)
+
+            # Use a tuple of sorted items as a hashable state representation.
+            state_key = tuple(sorted(state.items()))
+            if state_key in closed_set:
+                continue
+            closed_set.add(state_key)
+
+            # Check if the goal is met
+            if target_goal.evaluate(state):
+                return plan
+
+            # Expand all applicable actions
+            for action in actions:
+                if action.will_run_given(state):
+                    # Simulate the action on a deep copy to avoid side effects.
+                    new_state = action.test(state)  # action.__call__ applies its effects
+                    new_plan = plan + [action]
+                    new_g = g + 1  # Assuming uniform cost of 1 per action
+                    new_h = target_goal.goal_distance(new_state)
+                    new_f = new_g + new_h
+
+                    new_state_key = tuple(sorted(new_state.items()))
+                    if new_state_key in closed_set:
+                        continue
+
+                    heapq.heappush(open_set, (new_f, new_g, new_state, new_plan))
+                    
+        return []
+
 
 class Agent:
     def __init__(self, name: str, planner: Planner):
@@ -141,8 +207,8 @@ class Agent:
     def run(self):
         while self.goals:
             actions = self._plan()
-            print("Plan:", actions)
             for action in actions:
+                print("Plan:", action.name)
                 action(self.state)
             for goal in self.goals:
                 if goal.evaluate(self.state):
@@ -155,7 +221,6 @@ if __name__ == "__main__":
 
     # Create an agent with the planner
     agent = Agent("Test Agent", planner)
-    agent.state.value = 6
 
     # Define some actions
     action1 = agent.action("Action 1")
@@ -166,7 +231,17 @@ if __name__ == "__main__":
 
     @action1.affects("value")
     def effect_increment_value(value):
-        return value + 1
+        return value + 3
+    
+    action2 = agent.action("Action 2")
+
+    @action2.precondition("value")
+    def precondition_value_less_than_50(value):
+        return value < 50
+
+    @action2.affects("value")
+    def effect_decrement_value(value):
+        return value - 2
 
 
     # Define a goal
@@ -177,6 +252,7 @@ if __name__ == "__main__":
     agent.goals.append(goal)
 
     # Set initial state
+    agent.state.value = 6
     # Run the agent
     print("Initial state:", agent.state)
     agent.run()
