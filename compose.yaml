@@ -1,9 +1,9 @@
 services:
 
-  gitguru-v2:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  # gitguru-v2:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
     
 
   searxng:
@@ -33,7 +33,6 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    container_name: ollama
     ports:
       - ${PORT_OLLAMA}:11434
     volumes:
@@ -50,5 +49,12 @@ services:
               count: all
               capabilities:
                 - gpu
+  
+  # megalinter:
+  #   image: oxsecurity/megalinter:v8
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:rw
+  #     - ${DATA}/megalinter:/tmp/lint:rw
+  #   restart: unless-stopped 
     
   
