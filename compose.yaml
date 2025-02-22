@@ -1,10 +1,84 @@
 services:
-  searxng:
-    image: searxng/searxng
-    environment:
-      BASE_URL: http://localhost:{$PORT_SEARXNG}/
-      INSTANCE_NAME: searxng
+
+  redis:
+    image: docker.io/valkey/valkey:8-alpine
+    command: valkey-server --save 30 1 --loglevel warning
+    restart: unless-stopped
     volumes:
-      - ${DATA_SEARXNG}:/etc/searxng
+      - ./data/valkey-data:/data
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
+
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
     ports:
-      - ${PORT_SEARXNG}:8080
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data/searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=https://${SEARXNG_HOSTNAME:-localhost}/
+      - UWSGI_WORKERS=${SEARXNG_UWSGI_WORKERS:-4}
+      - UWSGI_THREADS=${SEARXNG_UWSGI_THREADS:-4}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
+
+  llamacpp-deepscale:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    user: 1000:1000
+    volumes:
+      - ${MODELS_PATH}:/models
+    ports:
+      - ${PORT_SEEPSCALE}:8000
+    command: [
+      "-m", "/models/agentica-org_DeepScaleR-1.5B-Preview-Q6_K.gguf",
+      "--port", "8000",
+      "--host", "0.0.0.0",
+      "-n", "512"
+    ]
+
+  llamacpp-deepseak:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    user: 1000:1000
+    volumes:
+      - ${MODELS_PATH}:/models
+    ports:
+      - ${PORT_DEEPSEEK}:8000
+    command: [
+      "-m", "/models/DeepSeek-R1-Distill-Llama-8B-Q4_K_M.gguf",
+      "--port", "8000",
+      "--host", "0.0.0.0",
+      "-n", "512"
+    ]
+
+  # llamacpp:
+  #   image: ghcr.io/ggml-org/llama.cpp:server
+  #   user: 1000:1000
+  #   volumes:
+  #     - ${MODELS_PATH}:/models
+  #   ports:
+  #     - ${PORT_DEEPSEEK}:8000
+  #   command: [
+  #     "-m", "/models/*.gguf",
+  #     "--port", "8000",
+  #     "--host", "0.0.0.0",
+  #     "-n", "512"
+  #   ]
