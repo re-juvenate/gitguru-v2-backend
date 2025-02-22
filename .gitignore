@@ -1,0 +1,7 @@
+# envs
+.venv
+.env
+.venv/
+.env/
+
+data/

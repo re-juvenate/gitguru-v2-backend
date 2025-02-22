@@ -1,0 +1,10 @@
+services:
+  searxng:
+    image: searxng/searxng
+    environment:
+      BASE_URL: http://localhost:{$PORT_SEARXNG}/
+      INSTANCE_NAME: searxng
+    volumes:
+      - ${DATA_SEARXNG}:/etc/searxng
+    ports:
+      - ${PORT_SEARXNG}:8080
