@@ -57,10 +57,36 @@ class Action:
 
         return decorator
 
+
+    def async_precondition(self, key):
+        def decorator(condition):
+            async def checked_condition(state: State):
+                result = await condition(state[key])
+                if not isinstance(result, bool):
+                    raise ValueError("Condition must return a boolean.")
+                return result
+
+            self.preconditions.append(checked_condition)
+            return checked_condition
+
+        return decorator
+
     def affects(self, key):
         def decorator(function):
             def effect(state):
                 result = function(state[key])
+                if isinstance(result, type(state[key])):
+                    state[key] = result
+
+            self.effects.append(effect)
+            return effect
+
+        return decorator
+
+    def async_affects(self, key):
+        def decorator(function):
+            async def effect(state):
+                result = await function(state[key])
                 if isinstance(result, type(state[key])):
                     state[key] = result
 
@@ -81,6 +107,13 @@ class Action:
                 effect(mutation)
         return mutation
 
+    async def atest(self, state: State):
+        mutation = state.substate()
+        if self.will_run_given(mutation):
+            effects = filter(asyncio.iscoroutine, self.effects)
+            _ = asyncio.gather(*[effect(mutation) for effect in effects])
+        return mutation
+
     def __call__(self, state: State):
         if self.will_run_given(state):
             for effect in self.effects:
@@ -99,7 +132,7 @@ class Goal:
 
     def _metric(self, key):
         if key not in self.distance_metrics:
-            self.distance_metrics[key] = lambda x, y: abs(x - y)
+            self.distance_metrics[key] = lambda x, y: 1
         return self.distance_metrics[key]
 
     def goal_distance(self, state: State):
@@ -112,13 +145,6 @@ class Goal:
     def evaluate(self, state: State):
         return state == self._final_state
 
-
-class Planner:
-    def __init__(self, name: str):
-        self.name = name
-
-    def plan(self, current_state: State, goals: list[Goal], actions: list[Action]):
-        return actions
 
 class Planner:
     def __init__(self, name: str):
