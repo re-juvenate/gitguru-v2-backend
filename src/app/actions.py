@@ -4,232 +4,147 @@ import aiohttp
 import asyncio
 import getpass
 
-from goap.llm import SemanticAction, EvalInjectLLM, Embeddings, Resolver
+from goap.llm import SemanticAction, EvalInjectLLM, Embeddings
 
 load_dotenv()
 
 
-llm = EvalInjectLLM()
+llm = EvalInjectLLM(base_url=f"http://localhost:{os.environ['PORT_OLLAMA']}", model=os.environ["LLM_MODEL"])
+embeddings = Embeddings(base_url=f"http://localhost:{os.environ['PORT_OLLAMA']}", model=os.environ["EMBEDDINGS_MODEL"])
 
 # to generate llm response await llm.gen(messages)
+# to generate vector response await embedder.gen(messages)
 
- 
-
-if "GITHUB_API_KEY" not in os.environ:
-    os.environ["GITHUB_API_KEY"] = getpass.getpass("Github API Key:")
-token = os.environ["GITHUB_API_KEY"]
-
-async def get_issue_body(owner, repo, issue_number):
-    global token
-
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
-
-    url = f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return "Failed to retrieve issue body."
-            data = await response.json()
-            return data["title"] + "\n" + data["body"]
-
-async def get_issue_comment(owner, repo, issue_number):
-    global token
-
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
-
-    url = f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/comments"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return ["Failed to retrieve issue comments"]
-            body = await get_issue_body(owner, repo, issue_number)
-            comments = await response.json()
-            comment_list = [body]
-            for comment in comments:
-                comment_list.append("@" + comment["user"]["login"] + "> " + comment["body"])
-            return comment_list
-
-async def get_repo_readme(owner, repo, issue_number=0):
-    global token
-
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
-
-    url = f"https://api.github.com/repos/{owner}/{repo}/readme"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return "Failed to retrieve README."
-            data = await response.json()
-            readme_enc = data["content"]
-            readme = base64.b64decode(readme_enc).decode("utf-8")
-            return readme
-
-async def get_repo_file(owner, repo, path=""):
-    global token
-
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
-
-    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return "Failed to retrieve file contents."
-            data = await response.json()
-            return data["content"]
-
-async def get_repo_filetree(owner, repo, issue_number=0):
-    global token
-
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
-
-    url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/master?recursive=1"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return "Failed to retrieve issue body."
-            data = await response.json()
-            filetree = data["tree"]
-            req_path = [item["path"] for item in filetree if item["type"] != "blob"]
-            return req_path
-
-async def get_repo_language(owner, repo, issue_number=0):
-    global token
-
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
-
-    url = f"https://api.github.com/repos/{owner}/{repo}/languages"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return ["Failed to retrieve languages."]
-            data = await response.json()
-            return data
-
-import base64
+from __future__ import annotations
+import os
 import re
-from typing import List, Dict
+import base64
+import asyncio
+import getpass
 import subprocess
+from typing import List, Dict, Any, Optional
 
-# Helper Functions
-# ----------------
-def filter_text_files(file_paths: List[str]) -> List[str]:
-    """Filter markdown/rst files and README"""
-    return [
-        path for path in file_paths
-        if path.endswith((".md", ".rst")) or path.lower() in ["readme", "readme.md"]
-    ]
+import aiohttp
+from dotenv import load_dotenv
 
-def extract_code_blocks(text: str) -> List[str]:
-    """Extract code blocks from text using regex"""
-    return re.findall(r'```[\s\S]*?```', text)
+# Environment Setup
+load_dotenv()
+
+# Configuration Constants
+GITHUB_API_VERSION = "2022-11-28"
+BASE_HEADERS = {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": GITHUB_API_VERSION
+}
+
+def get_github_token() -> str:
+    if "GITHUB_API_KEY" not in os.environ:
+        os.environ["GITHUB_API_KEY"] = getpass.getpass("GitHub API Key:")
+    return os.environ["GITHUB_API_KEY"]
+
+# Core GitHub Client
+class GitHubClient:
+    def __init__(self):
+        self.token = get_github_token()
+        self.headers = {**BASE_HEADERS, "Authorization": f"Bearer {self.token}"}
+    
+    async def fetch(self, url: str) -> Any:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=self.headers) as response:
+                response.raise_for_status()
+                return await response.json()
+
+# Repository Operations
+class RepositoryManager(GitHubClient):
+    async def get_filetree(self, owner: str, repo: str, branch: str = "main") -> List[str]:
+        url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
+        data = await self.fetch(url)
+        return [item["path"] for item in data.get("tree", [])]
+
+    async def get_readme(self, owner: str, repo: str) -> str:
+        url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+        data = await self.fetch(url)
+        return base64.b64decode(data["content"]).decode("utf-8")
+
+    async def get_file_content(self, owner: str, repo: str, path: str) -> str:
+        url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+        data = await self.fetch(url)
+        return base64.b64decode(data["content"]).decode("utf-8")
+
+    async def get_languages(self, owner: str, repo: str) -> Dict[str, int]:
+        url = f"https://api.github.com/repos/{owner}/{repo}/languages"
+        return await self.fetch(url)
+
+# Issue Operations
+class IssueManager(GitHubClient):
+    async def get_issue(self, owner: str, repo: str, number: int) -> Dict:
+        url = f"https://api.github.com/repos/{owner}/{repo}/issues/{number}"
+        return await self.fetch(url)
+
+    async def get_issue_comments(self, owner: str, repo: str, number: int) -> List[Dict]:
+        url = f"https://api.github.com/repos/{owner}/{repo}/issues/{number}/comments"
+        return await self.fetch(url)
+
+    async def full_issue_thread(self, owner: str, repo: str, number: int) -> List[str]:
+        issue = await self.get_issue(owner, repo, number)
+        comments = await self.get_issue_comments(owner, repo, number)
+        return [
+            f"{issue['title']}\n{issue['body']}",
+            *[f"@{c['user']['login']}: {c['body']}" for c in comments]
+        ]
+
+# Analysis Utilities
+class RepoAnalyzer:
+    @staticmethod
+    def filter_text_files(paths: List[str]) -> List[str]:
+        return [p for p in paths if p.endswith((".md", ".rst")) or p.lower().startswith("readme")]
+
+    @staticmethod
+    def extract_code_blocks(text: str) -> List[str]:
+        return re.findall(r'```[\s\S]*?```', text)
 
 # Feature Pipelines
-# -----------------
-async def repo_docs_summary(owner: str, repo: str) -> str:
-    """Get all documentation content"""
-    readme = await get_repo_readme(owner, repo)
-    filetree = await get_repo_filetree(owner, repo)
-    doc_files = filter_text_files(filetree)
-    
-    # Fetch all documentation files
-    docs = [readme]
-    for path in doc_files:
-        content = await get_repo_file(owner, repo, path)
-        docs.append(f"\n\n## File: {path} ##\n{content}")
-    
-    return "\n".join(docs)
-
-async def issue_thread_summary(owner: str, repo: str, issue_number: int) -> List[str]:
-    """Get complete issue discussion thread"""
-    return await get_issue_comment(owner, repo, issue_number)
-
-async def issue_code_extraction(owner: str, repo: str, issue_number: int) -> List[str]:
-    """Get code blocks from an issue thread"""
-    comments = await get_issue_comment(owner, repo, issue_number)
-    return [block for comment in comments for block in extract_code_blocks(comment)]
-
-async def repo_structure_analysis(owner: str, repo: str) -> Dict:
-    """Explain repository structure"""
+async def analyze_repository(owner: str, repo: str) -> Dict[str, Any]:
+    repo_mgr = RepositoryManager()
     return {
-        "file_tree": await get_repo_filetree(owner, repo),
-        "languages": await get_repo_language(owner, repo)
+        "structure": await repo_mgr.get_filetree(owner, repo),
+        "languages": await repo_mgr.get_languages(owner, repo),
+        "documentation": await RepoAnalyzer.filter_text_files(
+            await repo_mgr.get_filetree(owner, repo))
     }
 
-async def issue_relevant_files(owner: str, repo: str, issue_number: int) -> Dict:
-    """Find files relevant to an issue"""
-    issue_text = "\n".join(await get_issue_comment(owner, repo, issue_number))
-    all_files = await get_repo_filetree(owner, repo)
-    
-    # Simple keyword matching (replace with semantic search in real implementation)
-    relevant = []
-    for path in all_files:
-        if re.search(r'\b' + re.escape(path) + r'\b', issue_text, re.IGNORECASE):
-            content = await get_repo_file(owner, repo, path)
-            relevant.append({"path": path, "content": content})
-    
-    return {"issue": issue_text, "relevant_files": relevant}
+async def generate_docs_summary(owner: str, repo: str) -> str:
+    repo_mgr = RepositoryManager()
+    readme = await repo_mgr.get_readme(owner, repo)
+    files = RepoAnalyzer.filter_text_files(await repo_mgr.get_filetree(owner, repo))
+    contents = [readme] + [await repo_mgr.get_file_content(owner, repo, p) for p in files]
+    return "\n\n".join(contents)
 
-def clone_repo(owner: str, repo: str, target_dir: str = ".") -> None:
-    """Clone repository using git command"""
-    subprocess.run(["git", "clone", f"https://github.com/{owner}/{repo}.git", target_dir], check=True)
-
-# Modified Filetree Function
-# --------------------------
-async def get_repo_filetree(owner: str, repo: str) -> List[str]:
-    """Get ALL file paths (including blobs)"""
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
+async def find_issue_context(owner: str, repo: str, issue_number: int) -> Dict:
+    issue_mgr = IssueManager()
+    repo_mgr = RepositoryManager()
+    
+    thread = await issue_mgr.full_issue_thread(owner, repo, issue_number)
+    code_blocks = [b for msg in thread for b in RepoAnalyzer.extract_code_blocks(msg)]
+    files = await repo_mgr.get_filetree(owner, repo)
+    
+    return {
+        "conversation": thread,
+        "code_blocks": code_blocks,
+        "related_files": files  # Add semantic matching here
     }
 
-    url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/main?recursive=1"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            data = await response.json()
-            return [item["path"] for item in data["tree"]]
-
-# Usage Example
-# -------------
-async def main():
-    owner = "python"
-    repo = "cpython"
-    
-    # Example: Get documentation summary
-    docs = await repo_docs_summary(owner, repo)
-    print(f"Documentation Summary ({len(docs)} chars)")
-    
-    # Example: Process issue #12345
-    issue_num = 12345
-    code_blocks = await issue_code_extraction(owner, repo, issue_num)
-    print(f"Found {len(code_blocks)} code blocks in issue")
-    
-    # Clone repo to local
-    clone_repo(owner, repo)
-
+# Execution
 if __name__ == "__main__":
+    async def main():
+        owner, repo = "python", "cpython"
+        
+        # Example analysis
+        analysis = await analyze_repository(owner, repo)
+        print(f"Repo contains {len(analysis['structure'])} files")
+        print(f"Top language: {max(analysis['languages'], key=analysis['languages'].get)}")
+        
+        # Clone repository
+        subprocess.run(["git", "clone", f"https://github.com/{owner}/{repo}.git"], check=True)
+
     asyncio.run(main())

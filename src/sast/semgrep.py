@@ -26,7 +26,11 @@ class SemgrepScanner:
             
             try:
                 scan_results = json.loads(result.stdout)
-                return scan_results, 200
+                semgrep_results = {}
+                for result in scan_results["results"]:
+                    message, file = result["extra"]["message"], result["path"]
+                    semgrep_results[file] = message
+                return semgrep_results
             except json.JSONDecodeError:
                 return {"error": "Failed to parse Semgrep output", "raw_output": result.stdout}, 500
                 
