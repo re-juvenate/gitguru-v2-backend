@@ -57,7 +57,7 @@ async def main():
     parser.add_argument('--max-results', type=int, default=5)
     args = parser.parse_args()
 
-    results = await searxng_search(
+    results = await SearxngSearch(
         args.searx_url,
         args.query,
         max_results=args.max_results
