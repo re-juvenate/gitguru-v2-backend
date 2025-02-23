@@ -1,5 +1,0 @@
-# .mega-linter.yml
----
-ENABLE:
-  - ESLINT
-  - FLAKE8

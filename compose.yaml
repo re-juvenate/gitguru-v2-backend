@@ -2,9 +2,9 @@ services:
 
   gitguru-v2:
     build:
-      # context: .
-      # dockerfile: Dockerfile
-    image: 
+      context: .
+      dockerfile: Dockerfile
+    # image: ghci.io/re-juvenate/gitguru-v2-backend:latest
     depends_on:
       - searxng
       - ollama
