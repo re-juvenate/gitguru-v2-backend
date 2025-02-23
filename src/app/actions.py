@@ -123,6 +123,30 @@ async def find_issue_context(owner: str, repo: str, issue_number: int) -> Dict:
         "related_files": files  # Add semantic matching here
     }
 
+async def acluster(texts, embedder, min_s=2, max_s=1000):
+    vecs = await embedder.aembed_documents(texts)
+    hdb = hdbscan.HDBSCAN(
+        min_samples=min_s, min_cluster_size=min_s, max_cluster_size=max_s, metric="l2"
+    ).fit(vecs)
+    df = pd.DataFrame(
+        {
+            "text": [text for text in texts],
+            "cluster": hdb.labels_,
+        }
+    )
+    len(df)
+    df = df.query("cluster != -1")
+    cluster_texts = []
+    for c in df.cluster.unique():
+        c_str = "\n".join(
+            [
+                f"{row['text']}\n"
+                for row in df.query(f"cluster == {c}").to_dict(orient="records")
+            ]
+        )
+        cluster_texts.append(c_str)
+
+    return cluster_texts
 # Execution
 if __name__ == "__main__":
     async def main():
@@ -132,6 +156,7 @@ if __name__ == "__main__":
         analysis = await analyze_repository(owner, repo)
         print(f"Repo contains {len(analysis['structure'])} files")
         print(f"Top language: {max(analysis['languages'], key=analysis['languages'].get)}")
+        print(f"Documentation files: {len(analysis['documentation'])}")
         
         # Clone repository
         # subprocess.run(["git", "clone", f"https://github.com/{owner}/{repo}.git"], check=True)
