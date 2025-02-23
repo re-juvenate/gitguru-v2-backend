@@ -1,0 +1,17 @@
+FROM alpine:latest
+
+RUN apk add --no-cache wget unzip
+WORKDIR /app
+
+# Download PMD
+RUN wget https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.10.0/pmd-dist-7.10.0-bin.zip && \
+    unzip pmd-dist-7.10.0-bin.zip && \
+    rm pmd-dist-7.10.0-bin.zip
+
+
+ENV PATH="/app/pmd-bin-7.10.0/bin:${PATH}"
+RUN echo 'alias pmd="pmd"' >> ~/.bashrc
+
+ENTRYPOINT ["pmd"]
+
+CMD ["check", "-d", "/usr/src", "-R", "rulesets/java/quickstart.xml", "-f", "text"]

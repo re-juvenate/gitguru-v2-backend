@@ -1,13 +1,13 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
-RUN apt-get update && apt-get install -y git curl build-essential cmake npm
+RUN apt update && apt install -y git curl build-essential cmake npm
 RUN rm -rf /var/lib/apt/lists/*
-RUN apt-get autoremove -y && apt-get clean -y
+RUN apt autoremove -y && apt-get clean -y
 
-RUN npm install pnpm -g
-RUN npm install mega-linter-runner -g --save-dev
+# RUN npm install pnpm -g
+# RUN npm install mega-linter-runner -g --save-dev
 
-RUN pip install --no-cache-dir llama-cpp-python semgrep
+RUN pip install --no-cache-dir semgrep
 RUN pip install poetry
 
 WORKDIR /app
@@ -21,4 +21,4 @@ COPY . /app/
 RUN poetry install
 
 EXPOSE 5555
-CMD ["bash"]
+CMD ["gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:5555"]

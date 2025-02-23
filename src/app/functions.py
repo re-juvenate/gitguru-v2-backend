@@ -3,6 +3,7 @@ import os
 import aiohttp
 import asyncio
 import re
+import base64
 
 load_dotenv()
 
