@@ -1,7 +1,9 @@
 import asyncio
 import heapq
 from functools import partial
+from re import A
 from typing import Callable, Awaitable
+from typing_extensions import override
 
 
 class State(dict):
@@ -57,36 +59,10 @@ class Action:
 
         return decorator
 
-
-    def async_precondition(self, key):
-        def decorator(condition):
-            async def checked_condition(state: State):
-                result = await condition(state[key])
-                if not isinstance(result, bool):
-                    raise ValueError("Condition must return a boolean.")
-                return result
-
-            self.preconditions.append(checked_condition)
-            return checked_condition
-
-        return decorator
-
     def affects(self, key):
         def decorator(function):
             def effect(state):
                 result = function(state[key])
-                if isinstance(result, type(state[key])):
-                    state[key] = result
-
-            self.effects.append(effect)
-            return effect
-
-        return decorator
-
-    def async_affects(self, key):
-        def decorator(function):
-            async def effect(state):
-                result = await function(state[key])
                 if isinstance(result, type(state[key])):
                     state[key] = result
 
@@ -105,13 +81,6 @@ class Action:
         if self.will_run_given(mutation):
             for effect in self.effects:
                 effect(mutation)
-        return mutation
-
-    async def atest(self, state: State):
-        mutation = state.substate()
-        if self.will_run_given(mutation):
-            effects = filter(asyncio.iscoroutine, self.effects)
-            _ = asyncio.gather(*[effect(mutation) for effect in effects])
         return mutation
 
     def __call__(self, state: State):
@@ -150,7 +119,18 @@ class Planner:
     def __init__(self, name: str):
         self.name = name
 
-    def plan(self, current_state: State, goals: list[Goal], actions: list[Action]) -> list[Action]:
+    def plan(self, current_state: State, goals: list[Goal], actions: list[Action]):
+        return []
+
+
+class AStarPlanner(Planner):
+    def __init__(self, name: str):
+        super().__init__(name)
+
+    @override
+    def plan(
+        self, current_state: State, goals: list[Goal], actions: list[Action]
+    ) -> list[Action]:
         """
         Returns a sequence of actions that transforms current_state into a state
         that satisfies one of the goals. This implementation uses an A* search algorithm.
@@ -198,7 +178,9 @@ class Planner:
             for action in actions:
                 if action.will_run_given(state):
                     # Simulate the action on a deep copy to avoid side effects.
-                    new_state = action.test(state)  # action.__call__ applies its effects
+                    new_state = action.test(
+                        state
+                    )  # action.__call__ applies its effects
                     new_plan = plan + [action]
                     new_g = g + 1  # Assuming uniform cost of 1 per action
                     new_h = target_goal.goal_distance(new_state)
@@ -209,7 +191,7 @@ class Planner:
                         continue
 
                     heapq.heappush(open_set, (new_f, new_g, new_state, new_plan))
-                    
+
         return []
 
 
@@ -240,10 +222,94 @@ class Agent:
                 if goal.evaluate(self.state):
                     self.goals.remove(goal)
 
+
+class AsyncAction:
+    def __init__(self, name: str):
+
+        self.name = name
+        self.preconditions = []
+        self.effects = []
+
+    def async_precondition(self, key):
+        def decorator(condition):
+            async def checked_condition(state: State):
+                result = await condition(state[key])
+                if not isinstance(result, bool):
+                    raise ValueError("Condition must return a boolean.")
+                return result
+
+            self.preconditions.append(checked_condition)
+            return checked_condition
+
+        return decorator
+
+    def async_affects(self, key):
+        def decorator(function):
+            async def effect(state):
+                result = await function(state[key])
+                if isinstance(result, type(state[key])):
+                    state[key] = result
+
+            self.effects.append(effect)
+
+            return effect
+
+        return decorator
+
+    async def will_run_given(self, state: State, qualifier: Callable[..., bool] = all):
+        if self.preconditions == []:
+            return True
+        return qualifier(
+            await asyncio.gather(
+                *[condition(state) for condition in self.preconditions]
+            )
+        )
+
+    async def atest(self, state: State):
+        mutation = state.substate()
+        if self.will_run_given(mutation):
+            effects = list(filter(asyncio.iscoroutinefunction, self.effects))
+            _ = await asyncio.gather(*[effect(mutation) for effect in effects])
+        return mutation
+
+    def __call__(self, state: State):
+        if self.will_run_given(state):
+            for effect in self.effects:
+                effect(state)
+
+
+class AsyncAgent:
+    def __init__(self, name: str, planner: Planner):
+        self.name = name
+        self._planner = planner
+        self.actions = []
+        self.goals = []
+
+        self.state = State()
+
+    def action(self, name: str):
+        action = AsyncAction(name)
+        self.actions.append(action)
+        return action
+
+    async def _plan(self):
+        return []
+
+    async def run(self):
+        while self.goals:
+            actions = await self._plan()
+            for action in actions:
+                print("Plan:", action.name)
+                await action(self.state)
+            for goal in self.goals:
+                if goal.evaluate(self.state):
+                    self.goals.remove(goal)
+
+
 if __name__ == "__main__":
     # Test
     # Create a planner
-    planner = Planner("Test Planner")
+    planner = AStarPlanner("Test Planner")
 
     # Create an agent with the planner
     agent = Agent("Test Agent", planner)
@@ -258,7 +324,7 @@ if __name__ == "__main__":
     @action1.affects("value")
     def effect_increment_value(value):
         return value + 3
-    
+
     action2 = agent.action("Action 2")
 
     @action2.precondition("value")
@@ -269,9 +335,8 @@ if __name__ == "__main__":
     def effect_decrement_value(value):
         return value - 2
 
-
     # Define a goal
-    goal = Goal("Goal 1", value=10)
+    goal = Goal("Goal 1", value=21)
     goal.set_metric("value", lambda x, y: abs(x - y))
 
     # Add goal to agent
@@ -282,6 +347,5 @@ if __name__ == "__main__":
     # Run the agent
     print("Initial state:", agent.state)
     agent.run()
-    agent.run()
+    # agent.run()
     print("Final state:", agent.state)
-
