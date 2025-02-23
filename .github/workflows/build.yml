@@ -38,5 +38,5 @@ jobs:
 
       - name: 'Build Inventory Image'
         run: |
-          docker build . --tag ghcr.io/${{ github.repository }}/gitGuru:latest
-          docker push ghcr.io/${{ github.repository }}/gitGuru:latest
+          docker build . --tag ghcr.io/${{ github.repository }}/gitguru:latest
+          docker push ghcr.io/${{ github.repository }}/gitguru:latest
