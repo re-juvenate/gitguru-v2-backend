@@ -6,7 +6,7 @@ import rank_bm25
 import numpy as np
 from numba import jit
 import re
-import tiktoken
+# import tiktoken
 import hdbscan
 import pandas as pd
 
