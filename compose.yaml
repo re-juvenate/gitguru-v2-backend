@@ -8,14 +8,8 @@ services:
     depends_on:
       - searxng
       - ollama
-      - pmd
     ports:
       - ${PORT_GITGURU}:5555
-  
-  pmd:
-    build:
-      context: .
-      dockerfile: Dockerfile.pmd    
 
   searxng:
     image: docker.io/searxng/searxng:latest
