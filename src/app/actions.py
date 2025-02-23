@@ -9,17 +9,6 @@ from typing import List, Dict, Any, Optional
 import asyncio
 import getpass
 
-from ..goap.llm import SemanticAction, EvalInjectLLM, Embeddings
-
-# load_dotenv()
-
-
-# llm = EvalInjectLLM(base_url=f"http://localhost:{os.environ['PORT_OLLAMA']}", model=os.environ["LLM_MODEL"])
-# embeddings = Embeddings(base_url=f"http://localhost:{os.environ['PORT_OLLAMA']}", model=os.environ["EMBEDDINGS_MODEL"])
-
-# to generate llm response await llm.gen(messages)
-# to generate vector response await embedder.gen(messages)
-
 # Configuration Constants
 GITHUB_API_VERSION = "2022-11-28"
 BASE_HEADERS = {
@@ -90,6 +79,9 @@ class RepoAnalyzer:
         return [p for p in paths if p.endswith((".md", ".rst")) or p.lower().startswith("readme")]
 
     @staticmethod
+    def filter_files(paths: List[str], *ext: str) -> List[str]:
+        return [p for p in paths if p.endswith(ext)]
+    @staticmethod
     def extract_code_blocks(text: str) -> List[str]:
         return re.findall(r'```[\s\S]*?```', text)
 
@@ -98,6 +90,7 @@ async def analyze_repository(owner: str, repo: str) -> Dict[str, Any]:
     repo_mgr = RepositoryManager()
     return {
         "structure": await repo_mgr.get_filetree(owner, repo),
+        "readme": await repo_mgr.get_readme(owner, repo),
         "languages": await repo_mgr.get_languages(owner, repo),
         "documentation": RepoAnalyzer.filter_text_files(await repo_mgr.get_filetree(owner, repo))
     }
@@ -106,6 +99,7 @@ async def generate_docs_summary(owner: str, repo: str) -> str:
     repo_mgr = RepositoryManager()
     readme = await repo_mgr.get_readme(owner, repo)
     files = RepoAnalyzer.filter_text_files(await repo_mgr.get_filetree(owner, repo))
+    files= files[:10]
     contents = [readme] + [await repo_mgr.get_file_content(owner, repo, p) for p in files]
     return "\n\n".join(contents)
 
@@ -123,30 +117,8 @@ async def find_issue_context(owner: str, repo: str, issue_number: int) -> Dict:
         "related_files": files  # Add semantic matching here
     }
 
-async def acluster(texts, embedder: Embedding, min_s=2, max_s=1000):
-    vecs = await embedder.gen(texts)
-    hdb = hdbscan.HDBSCAN(
-        min_samples=min_s, min_cluster_size=min_s, max_cluster_size=max_s, metric="l2"
-    ).fit(vecs)
-    df = pd.DataFrame(
-        {
-            "text": [text for text in texts],
-            "cluster": hdb.labels_,
-        }
-    )
-    len(df)
-    df = df.query("cluster != -1")
-    cluster_texts = []
-    for c in df.cluster.unique():
-        c_str = "\n".join(
-            [
-                f"{row['text']}\n"
-                for row in df.query(f"cluster == {c}").to_dict(orient="records")
-            ]
-        )
-        cluster_texts.append(c_str)
 
-    return cluster_texts
+
 # Execution
 if __name__ == "__main__":
     async def main():

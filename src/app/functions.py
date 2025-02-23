@@ -1,132 +1,42 @@
-from dotenv import load_dotenv
-import os
-import aiohttp
+from goap.llm import EvalInjectLLM, Embeddings, acluster, chunk, SemanticAction, RegexAction, memDB
 import asyncio
-import re
-import base64
 
-load_dotenv()
+llm = EvalInjectLLM(f"http://localhost:{PORT_OLLAMA}/v1", f"{LLM_MODEL}", api_key="ollama")
+embeddings = Embeddings(f"http://localhost:{PORT_OLLAMA}/v1", f"{EMBED_MODEL}", api_key="ollama")
 
-if "GITHUB_API_KEY" not in os.environ:
-    os.environ["GITHUB_API_KEY"] = getpass.getpass("Github API Key:")
-token = os.environ["GITHUB_API_KEY"]
+# Summarization pipeline (Longsum)
+async def summarize(objective="", text):
+    chunks = chunk(text, "\n")
+    clusters = await acluster(chunks, embeddings, min_s=2, max_s=1000)
+    cluster_sums = [llm.gen([{"role": "user", "content": f"Summarize the following {objective}, be specific and capture the details: {text}"}]) for text in clusters]
+    cluster_sums = await asyncio.gather(*cluster_sums)
+    return await llm.gen([{"role": "user", "content": f"Summarize the following {objective}, be specific and capture the details: {' -- '.join(cluster_sums)}"}])
 
-async def get_issue_body(owner, repo, issue_number):
-    global token
+# 
+async def extract(objective: str, texts: list[str], *args):
+    vecs = await embeddings.gen(texts)
+    db = memDB()
+    db.extend(texts, vecs)
+    top_texts = db.search(objective, 10)
+    extra_args = " ".join(args)
+    return await llm.gen([{"role": "user", "content": f"Filter and extract the most suitable {objective} for {extra_args} from the following texts: {' -- '.join(top_texts)}"}])
 
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
+async def extract_and_summarize(objective: str, texts: list[str], *args):
+    vecs = await embeddings.gen(texts)
+    db = memDB()
+    db.extend(texts, vecs)
+    top_texts = db.search(objective, 10)
+    extra_args = " ".join(args)
+    return await summarize(objective, await extract(objective, top_texts, *args))
 
-    url = f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return "Failed to retrieve issue body."
-            data = await response.json()
-            return data["title"] + "\n" + data["body"]
 
-async def get_issue_comment(owner, repo, issue_number):
-    global token
 
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
 
-    url = f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/comments"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return ["Failed to retrieve issue comments"]
-            body = await get_issue_body(owner, repo, issue_number)
-            comments = await response.json()
-            comment_list = [body]
-            for comment in comments:
-                comment_list.append("@" + comment["user"]["login"] + "> " + comment["body"])
-            return comment_list
 
-async def get_repo_readme(owner, repo, issue_number=0):
-    global token
 
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
 
-    url = f"https://api.github.com/repos/{owner}/{repo}/readme"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return "Failed to retrieve README."
-            data = await response.json()
-            readme_enc = data["content"]
-            readme = base64.b64decode(readme_enc).decode("utf-8")
-            return readme
 
-async def get_repo_file(owner, repo, path=""):
-    global token
 
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
 
-    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return "Failed to retrieve file contents."
-            data = await response.json()
-            return data["content"]
 
-async def get_repo_filetree(owner, repo, issue_number=0):
-    global token
-
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
-
-    url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/master?recursive=1"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return "Failed to retrieve issue body."
-            data = await response.json()
-            filetree = data["tree"]
-            req_path = [item["path"] for item in filetree if item["type"] != "blob"]
-            return req_path
-
-async def get_repo_language(owner, repo, issue_number=0):
-    global token
-
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
-
-    url = f"https://api.github.com/repos/{owner}/{repo}/languages"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status != 200:
-                return ["Failed to retrieve languages."]
-            data = await response.json()
-            return data
-
-def on_regex(regex):
-    def decorator(func):
-        def wrapper(text, *args, **kwargs):
-            if re.search(regex, text):
-                return func(*args, **kwargs)
-            return None
-        return wrapper
-    return decorator
 

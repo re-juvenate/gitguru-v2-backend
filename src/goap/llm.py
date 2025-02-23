@@ -1,13 +1,14 @@
-from os import name
-from typing_extensions import override
 from openai import AsyncOpenAI
 from typing import Callable, List, AsyncGenerator, Awaitable
 import asyncio
 from abc import ABC, abstractmethod
 import rank_bm25
 import numpy as np
+from numba import jit
 import re
-
+import tiktoken
+import hdbscan
+import pandas as pd
 
 class Embeddings:
     def __init__(self, base_url, model, **kwargs):
@@ -17,9 +18,28 @@ class Embeddings:
     async def gen(self, texts: list[str]) :
         response = await self.client.embeddings.create(input=texts, model=self.model)
         return [embedding.embedding for embedding in response.data]
+    
+@jit
+def cosine_sim(a: list[float], b: list[float]) -> float:
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-    def cosine_sim(self, a: list[float], b: list[float]) -> float:
-                return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+class memDB:
+    def __init__(self, ):
+        self.vecs = np.array([])
+        self.items = []
+
+    def add(self, item, vec):
+        self.vecs = np.append(self.vecs, [vec], axis=0)
+        self.items.append(item)
+
+    def extend(self, items, vecs):
+        self.vecs = np.append(self.vecs, vecs, axis=0)
+        self.items.extend(items)
+
+    def search(self, query_embedding, top_k=5):
+        similarities = [cosine_sim(query_embedding, embedding) for embedding in self.vecs]
+        relevant_indices = np.argsort(similarities)[-top_k:]
+        return [self.items[i] for i in relevant_indices]
 
 
 class EvalInjectAction(ABC):
@@ -44,21 +64,20 @@ class EvalInjectLLM:
             messages=messages
         )
         content = response.choices[0].message.content
-        think_match = re.search(r'<think>(.*?)</think>', content)
-        think = think_match.group(1) if think_match else ''
-        say = re.sub(r'<think>.*?</think>', '', content)
-        return think, say
+        return content
 
     async def gen_with_evalinject(self,messages: list[dict],actions: List[EvalInjectAction],) -> AsyncGenerator[str, None]:
         current_messages = messages.copy()
+        m = len(current_messages)
         accumulated_text = ""
         
-        while True:
+        while True and len(current_messages)-m < 6:
+            action_explanation = "Available Actions: " + ", ".join(action.name for action in actions) + "\n to use them, just speak about the thing its supposed to do or say the name of the action."
             stream = await self.client.chat.completions.create(
                 model=self.model,
                 messages=current_messages + [{
-                    "role": "assistant", 
-                    "content": "Available Actions: " + ", ".join(action.name for action in actions)
+                    "role": "system", 
+                    "content": action_explanation
                 }],
                 stream=True
             )
@@ -91,7 +110,7 @@ class EvalInjectLLM:
                     injected_content = await action_triggered.injector(accumulated_text)
                     current_messages.extend([
                         {"role": "assistant", "content": accumulated_text},
-                        {"role": "user", "content": injected_content}
+                        {"role": "system", "content": injected_content}
                     ])
                     break  # Exit chunk loop for action handling
 
@@ -180,17 +199,45 @@ def SemanticAction(name:str,
                     print(f"Query embedding: {self._query_embedding}")
                 return self._query_embedding
 
-            def _cosine_sim(self, a: list[float], b: list[float]) -> float:
-                return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-
             async def evaluator(self, text: str) -> bool:
                 q_embed = await self._get_query_embedding()
                 t_embed = (await self.embeddings.gen([text]))[0]
-                similarity = embeddings.cosine_sim(q_embed, t_embed)
+                similarity = cosine_sim(q_embed, t_embed)
                 return similarity >= self.threshold
 
         return SemanticActionWrapper(func)
     return decorator
+
+
+
+async def acluster(texts, embedder, min_s=2, max_s=1000):
+    vecs = await embedder.gen(texts)
+    hdb = hdbscan.HDBSCAN(
+        min_samples=min_s, min_cluster_size=min_s, max_cluster_size=max_s, metric="l2"
+    ).fit(vecs)
+    df = pd.DataFrame(
+        {
+            "text": [text for text in texts],
+            "cluster": hdb.labels_,
+        }
+    )
+    len(df)
+    df = df.query("cluster != -1")
+    cluster_texts = []
+    for c in df.cluster.unique():
+        c_str = "\n".join(
+            [
+                f"{row['text']}\n"
+                for row in df.query(f"cluster == {c}").to_dict(orient="records")
+            ]
+        )
+        cluster_texts.append(c_str)
+
+    return cluster_texts
+
+def chunk(text: str, chunk_on="\n"):
+    chunks = text.split(chunk_on)
+    return chunks
 
 if __name__ == "__main__":
 
