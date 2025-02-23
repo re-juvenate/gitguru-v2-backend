@@ -1,8 +1,13 @@
-FROM python:3.13-alpine3.21
+# FROM python:3.13-alpine3.21
+# RUN apk update && \
+#     apk add --no-cache wget unzip build-base swig python3-dev py3 && \
+#     rm -rf /var/cache/apk/*
 
-RUN apk update && \
-    apk add --no-cache wget unzip build-base swig python3-dev py3-pip && \
-    rm -rf /var/cache/apk/*
+FROM python:3.13-slim
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends wget unzip build-essential python3-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 WORKDIR /app
 
@@ -26,11 +31,6 @@ RUN poetry config virtualenvs.create false
 COPY pyproject.toml poetry.lock README.md /app/
 COPY src /app/src
 RUN poetry install
-
-# Verify installations
-RUN semgrep --version
-# python -c "import llama_cpp; print(llama_cpp.__version__)" && \
-# mega-linter-runner --version
 
 WORKDIR /app/src
 EXPOSE 5555
