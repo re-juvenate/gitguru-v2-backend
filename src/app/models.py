@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import List
 from datetime import datetime
+from typing import Literal
 
 class Conversation(BaseModel):
     message: str
@@ -8,7 +9,8 @@ class Conversation(BaseModel):
     role: str
 
 class RepoRequest(BaseModel):
-    repo_url: str
+    url: str
+    type: Literal["repo", "issue"]
     conversations: List[Conversation]
 
 class IssueRequest(BaseModel):
