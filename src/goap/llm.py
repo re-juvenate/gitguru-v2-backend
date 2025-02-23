@@ -7,15 +7,6 @@ import rank_bm25
 import numpy as np
 import re
 
-class Resolver:
-    def __init__(self) -> None:
-        self._resolver = {}
-
-    def register(self, name: str, func: Callable | Awaitable):
-        self._resolver[name] = func
-
-    async def resolve(self, name: str, *args, **kwargs):
-        return await self._resolver[name](*args, **kwargs)
 
 class Embeddings:
     def __init__(self, base_url, model, **kwargs):
@@ -54,39 +45,40 @@ class EvalInjectLLM:
     ) -> AsyncGenerator[str, None]:
         current_messages = messages.copy()
         accumulated_text = ""  # Track across iterations
-        
+        current_actions = actions
         while True:
             stream = await self.client.chat.completions.create(
                 model=self.model,
-                messages=current_messages,
+                messages=current_messages+[{"role": "assistant", "content": "Actions (you can use them by talking about them): "+" ".join(action.injector.__name__ for action in current_actions)}],
                 stream=True
             )
             # Reset for new stream
             accumulated_text = ""
             triggered = False
             
+            n=0
             async for chunk in stream:
                 content = chunk.choices[0].delta.content or ""
                 accumulated_text += content
-                yield content  # Stream chunks immediately
-
-                # Check actions after yielding to ensure real-time streaming
+                yield content
+                if n<6:
+                    continue
                 action_results = await asyncio.gather(
                     *[action.evaluator(accumulated_text) for action in actions]
                 )
-                
                 for action_idx, is_triggered in enumerate(action_results):
+                    triggered = is_triggered
                     if is_triggered:
                         # Inject user message, not assistant
-                        injected_content = await actions[action_idx].injector(accumulated_text)
+                        action = actions[action_idx]
+                        injected_content = await action.injector(accumulated_text)
                         current_messages.extend([
                             {"role": "assistant", "content": accumulated_text},
                             {"role": "user", "content": injected_content}  # Correct role
                         ])
-                        triggered = True
                         break
-                if triggered:
-                    break
+            if triggered:
+                break
 
             if not triggered:
                 # Append final assistant response
