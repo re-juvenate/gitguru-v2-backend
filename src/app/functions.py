@@ -2,6 +2,8 @@ from goap.llm import EvalInjectLLM, Embeddings, acluster, chunk, SemanticAction,
 from sast.semgrep import SemgrepScanner
 from sast.searxng import SearxngSearch
 import asyncio
+import tempfile
+import aiofiles
 from dotenv import load_dotenv
 import os
 
@@ -54,19 +56,15 @@ async def select(texts: list[str], *args):
     return mapping[top_texts_by_reasoning[0]]
 
 
-    
+async def save_to_tempfile(data: str) -> str:
+    # Create a temporary file
+    temp_file = tempfile.NamedTemporaryFile(delete=False)
+    temp_file_path = temp_file.name
+    temp_file.close()
 
+    # Write data to the temporary file asynchronously
+    async with aiofiles.open(temp_file_path, mode='w') as file:
+        await file.write(data)
 
-
-
-
-
-
-
-
-
-
-
-
-
+    return temp_file_path
 

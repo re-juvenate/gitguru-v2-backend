@@ -14,19 +14,19 @@ async def get_repo_summary(request: models.RepoRequest):
     return {"data": "This is a placeholder summary for the repository."}
 
 @router.post("/sum-issue")
-async def get_issue_summary(request: models.IssueRequest):
+async def get_issue_summary(request: models.RepoRequest):
     owner, repo, issue_number = url_parser(request.issue_url)
     # data = await find_issue_context(owner, repo, issue_number)
     return {"data": "This is a placeholder summary for the issue."}
 
 @router.post("/fixes")
-async def get_fixes(request: models.IssueRequest):
+async def get_fixes(request: models.RepoRequest):
     owner, repo, issue_number = url_parser(request.issue_url)
     return {"data": "These are placeholder fixes."}
 
 @router.post("/instructions")
 async def instructions(request: models.RepoRequest):
-    owner, repo, issue_number = url_parser(request.repo_url)
+    owner, repo = url_parser(request.repo_url)
     return {"data": "These are placeholder instructions."}
 
 @router.post("/chat")
