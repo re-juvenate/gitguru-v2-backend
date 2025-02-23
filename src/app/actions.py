@@ -134,6 +134,6 @@ if __name__ == "__main__":
         print(f"Top language: {max(analysis['languages'], key=analysis['languages'].get)}")
         
         # Clone repository
-        subprocess.run(["git", "clone", f"https://github.com/{owner}/{repo}.git"], check=True)
+        # subprocess.run(["git", "clone", f"https://github.com/{owner}/{repo}.git"], check=True)
 
     asyncio.run(main())
