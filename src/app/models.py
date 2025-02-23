@@ -13,7 +13,7 @@ class RepoRequest(BaseModel):
     type: Literal["repo", "issue"]
     conversations: List[Conversation]
 
-class IssueRequest(BaseModel):
-    repo_url: str
-    issue_url: str
-    conversation: List[Conversation]
+# class IssueRequest(BaseModel):
+#     repo_url: str
+#     issue_url: str
+#     conversation: List[Conversation]

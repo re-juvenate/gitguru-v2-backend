@@ -7,6 +7,9 @@ from sast.semgrep import SemgrepScanner
 from sast.searxng import SearxngSearch
 import asyncio
 import re
+from urllib.parse import urlparse
+from typing import Tuple, Union
+
 
 router = APIRouter()
 
@@ -17,7 +20,7 @@ embeddings = functions.embeddings
 async def get_repo_summary(request: models.RepoRequest):
     """Generate comprehensive repository summary including structure, docs, and languages"""
     try:
-        owner, repo, _ = url_parser(request.repo_url)
+        owner, repo, _ = parse_github_url(request.url, request.type)
         analysis = await analyze_repository(owner, repo)
         context = f"""
         Repository Structure: {', '.join(analysis['structure'][:10])}... ({len(analysis['structure'])} files total)
@@ -29,10 +32,10 @@ async def get_repo_summary(request: models.RepoRequest):
         raise HTTPException(500, f"Repo analysis failed: {str(e)}")
 
 @router.post("/sum-issue")
-async def get_issue_summary(request: models.IssueRequest):
+async def get_issue_summary(request: models.RepoRequest):
     """Condense issue thread with code context and related files"""
     try:
-        owner, repo, issue_number = url_parser(request.issue_url)
+        owner, repo, issue_number = parse_github_url(request.url, request.type)
         if not issue_number:
             raise ValueError("Invalid issue URL")
             
@@ -50,10 +53,10 @@ async def get_issue_summary(request: models.IssueRequest):
         raise HTTPException(500, f"Issue summary failed: {str(e)}")
 
 @router.post("/fixes")
-async def get_fixes(request: models.IssueRequest):
+async def get_fixes(request: models.RepoRequest):
     """Suggest code fixes with file references"""
     try:
-        owner, repo, issue_number = url_parser(request.issue_url)
+        owner, repo, issue_number = parse_github_url(request.url, request.type)
         data = await find_issue_context(owner, repo, int(issue_number))
         
         if not data["code_blocks"]:
@@ -83,7 +86,7 @@ async def get_fixes(request: models.IssueRequest):
 async def instructions(request: models.RepoRequest):
     """Generate setup/contribution instructions from docs"""
     try:
-        owner, repo, _ = url_parser(request.repo_url)
+        owner, repo, _ = parse_github_url(request.url, request.type)
         docs = await generate_docs_summary(owner, repo)
         return {"data": await extract(
             "setup and usage instructions", 
@@ -97,7 +100,7 @@ async def instructions(request: models.RepoRequest):
 async def chat(request: models.RepoRequest):
     """AI assistant with repo-aware knowledge"""
     try:
-        owner, repo, issue_number = url_parser(request.repo_url)
+        owner, repo, issue_number = parse_github_url(request.url, request.type)
         context = ""
 
         # @SemanticAction("search", query="search, research, look it up", embeddings=embeddings)
@@ -124,11 +127,18 @@ async def chat(request: models.RepoRequest):
     except Exception as e:
         raise HTTPException(500, f"Chat failed: {str(e)}")
 
-def url_parser(url: str):
-    """Improved URL parsing with regex"""
-    match = re.match(r"https?://github.com/([^/]+)/([^/]+)(/issues/(\d+))?", url)
-    if not match:
-        raise HTTPException(400, "Invalid GitHub URL format")
-        
-    owner, repo, _, issue = match.groups()
-    return (owner, repo, int(issue) if issue else None)
+def parse_github_url(url: str, type: str) -> Tuple[str, str, int]:
+
+    parsed_url = urlparse(url)
+    path_parts = parsed_url.path.strip('/').split('/')
+
+    if type == 'repo' and len(path_parts) >= 2:
+        owner, repo_name = path_parts[:2]
+        return owner, repo_name, 0  # Default value for issue_number
+
+    if type == 'issue' and len(path_parts) >= 4 and path_parts[2] == 'issues' and path_parts[3].isdigit():
+        owner, repo_name = path_parts[:2]
+        issue_id = int(path_parts[3])
+        return owner, repo_name, issue_id
+
+    raise ValueError("Invalid GitHub URL format or type")

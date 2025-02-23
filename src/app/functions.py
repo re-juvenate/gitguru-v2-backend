@@ -13,8 +13,8 @@ PORT_OLLAMA=os.environ["PORT_OLLAMA"]
 LLM_MODEL=os.environ["LLM_MODEL"]
 EMBED_MODEL=os.environ["EMBED_MODEL"]
 
-llm = EvalInjectLLM(f"http://localhost:{PORT_OLLAMA}/v1", f"{LLM_MODEL}", api_key="ollama")
-embeddings = Embeddings(f"http://localhost:{PORT_OLLAMA}/v1", f"{EMBED_MODEL}", api_key="ollama")
+llm = EvalInjectLLM(f"http://ollama:11434/v1", f"{LLM_MODEL}", api_key="ollama")
+embeddings = Embeddings(f"http://ollama:11434/v1", f"{EMBED_MODEL}", api_key="ollama")
 
 # Summarization pipeline (Longsum)
 async def summarize(objective="", text=""):

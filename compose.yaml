@@ -10,6 +10,7 @@ services:
       - ollama
     ports:
       - ${PORT_GITGURU}:5555
+    env_file: .env
 
   searxng:
     image: docker.io/searxng/searxng:latest
