@@ -18,6 +18,10 @@ class Embeddings:
         response = await self.client.embeddings.create(input=texts, model=self.model)
         return [embedding.embedding for embedding in response.data]
 
+    def cosine_sim(self, a: list[float], b: list[float]) -> float:
+                return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+
 class EvalInjectAction(ABC):
     def __init__(self, name: str):
         self.name = name
@@ -82,7 +86,7 @@ class EvalInjectLLM:
                         triggered = True
                         break
                     
-                if triggered:
+                if triggered and action_triggered:
                     # Handle the action injection
                     injected_content = await action_triggered.injector(accumulated_text)
                     current_messages.extend([
@@ -94,7 +98,6 @@ class EvalInjectLLM:
             if triggered:
                 continue  # Restart main loop with updated messages
                 
-            # Finalize non-triggered completion
             current_messages.append({
                 "role": "assistant", 
                 "content": accumulated_text
@@ -174,6 +177,7 @@ def SemanticAction(name:str,
                 if not self._query_embedding:
                     emb = await self.embeddings.gen([self.query])
                     self._query_embedding = emb[0]
+                    print(f"Query embedding: {self._query_embedding}")
                 return self._query_embedding
 
             def _cosine_sim(self, a: list[float], b: list[float]) -> float:
@@ -182,7 +186,7 @@ def SemanticAction(name:str,
             async def evaluator(self, text: str) -> bool:
                 q_embed = await self._get_query_embedding()
                 t_embed = (await self.embeddings.gen([text]))[0]
-                similarity = self._cosine_sim(q_embed, t_embed)
+                similarity = embeddings.cosine_sim(q_embed, t_embed)
                 return similarity >= self.threshold
 
         return SemanticActionWrapper(func)

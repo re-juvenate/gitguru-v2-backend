@@ -31,7 +31,7 @@ class Identifier:
 
 if __name__ == "__main__":
     identifier = Identifier()
-    texts = ["// This is a Java comment", "def foo():", "import java.util.*;"]
+    texts = ["// This is a Java comment", "def foo():", "import java.util.*; public static void main(String args[])"]
     for text in texts:
         print(identifier.identify_text(text))
 

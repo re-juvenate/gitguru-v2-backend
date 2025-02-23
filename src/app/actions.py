@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Optional
 import asyncio
 import getpass
 
-# from ..goap.llm import SemanticAction, EvalInjectLLM, Embeddings
+from ..goap.llm import SemanticAction, EvalInjectLLM, Embeddings
 
 # load_dotenv()
 
@@ -123,8 +123,8 @@ async def find_issue_context(owner: str, repo: str, issue_number: int) -> Dict:
         "related_files": files  # Add semantic matching here
     }
 
-async def acluster(texts, embedder, min_s=2, max_s=1000):
-    vecs = await embedder.aembed_documents(texts)
+async def acluster(texts, embedder: Embedding, min_s=2, max_s=1000):
+    vecs = await embedder.gen(texts)
     hdb = hdbscan.HDBSCAN(
         min_samples=min_s, min_cluster_size=min_s, max_cluster_size=max_s, metric="l2"
     ).fit(vecs)
