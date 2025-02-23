@@ -2,12 +2,22 @@ from goap.llm import EvalInjectLLM, Embeddings, acluster, chunk, SemanticAction,
 from sast.semgrep import SemgrepScanner
 from sast.searxng import SearxngSearch
 import asyncio
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+PORT_OLLAMA=os.environ["PORT_OLLAMA"]
+LLM_MODEL=os.environ["LLM_MODEL"]
+EMBED_MODEL=os.environ["EMBED_MODEL"]
 
 llm = EvalInjectLLM(f"http://localhost:{PORT_OLLAMA}/v1", f"{LLM_MODEL}", api_key="ollama")
 embeddings = Embeddings(f"http://localhost:{PORT_OLLAMA}/v1", f"{EMBED_MODEL}", api_key="ollama")
 
 # Summarization pipeline (Longsum)
-async def summarize(objective="", text):
+async def summarize(objective="", text=""):
+    if not text:
+        return
     chunks = chunk(text, "\n")
     clusters = await acluster(chunks, embeddings, min_s=2, max_s=1000)
     cluster_sums = [llm.gen([{"role": "user", "content": f"Summarize the following {objective}, be specific and capture the details: {text}"}]) for text in clusters]

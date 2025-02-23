@@ -9,6 +9,8 @@ from typing import List, Dict, Any, Optional
 import asyncio
 import getpass
 
+load_dotenv()
+
 # Configuration Constants
 GITHUB_API_VERSION = "2022-11-28"
 BASE_HEADERS = {
