@@ -13,34 +13,43 @@ router = APIRouter()
 
 @router.post("/sum-repo")
 async def get_repo_summary(request: models.RepoRequest):
+    if not request.url:
+        return
     owner, repo, issue_number = parse_github_url(request.url, request.type)
     # data = await analyze_repository(owner, repo)
     return {"data": "This is a placeholder summary for the repository."}
 
 @router.post("/sum-issue")
 async def get_issue_summary(request: models.RepoRequest):
+    if not request.url:
+        return
     owner, repo, issue_number = parse_github_url(request.url, request.type)
     # data = await find_issue_context(owner, repo, issue_number)
     return {"data": "This is a placeholder summary for the issue."}
 
 @router.post("/fixes")
 async def get_fixes(request: models.RepoRequest):
+    if not request.url:
+        return
     owner, repo, issue_number = parse_github_url(request.url, request.type)
     return {"data": "These are placeholder fixes."}
 
 @router.post("/instructions")
 async def instructions(request: models.RepoRequest):
+    if not request.url:
+        return    
     owner, repo, issue_number = parse_github_url(request.url, request.type)
     return {"data": "These are placeholder instructions."}
 
 @router.post("/chat")
 async def chat(request: models.RepoRequest):
+    if not request.url:
+        return
     owner, repo, issue_number = parse_github_url(request.url, request.type)
     return {"data": "This is a placeholder chat response."}
 
 
 def parse_github_url(url: str, type: str) -> Tuple[str, str, int]:
-    
     parsed_url = urlparse(url)
     path_parts = parsed_url.path.strip('/').split('/')
 
