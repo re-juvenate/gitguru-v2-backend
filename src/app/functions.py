@@ -27,7 +27,7 @@ async def extract_and_summarize(objective: str, texts: list[str], *args):
     db.extend(texts, vecs)
     top_texts = db.search(objective, 10)
     extra_args = " ".join(args)
-    return await summarize(objective, await extract(objective, top_texts, *args))
+    return await summarize(objective+extra_args, await extract(objective, top_texts, *args))
 
 
 
