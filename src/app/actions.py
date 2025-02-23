@@ -1,34 +1,24 @@
+from __future__ import annotations
 from dotenv import load_dotenv
 import os
 import aiohttp
+import re
+import base64
+import subprocess
+from typing import List, Dict, Any, Optional
 import asyncio
 import getpass
 
-from goap.llm import SemanticAction, EvalInjectLLM, Embeddings
+# from ..goap.llm import SemanticAction, EvalInjectLLM, Embeddings
 
-load_dotenv()
+# load_dotenv()
 
 
-llm = EvalInjectLLM(base_url=f"http://localhost:{os.environ['PORT_OLLAMA']}", model=os.environ["LLM_MODEL"])
-embeddings = Embeddings(base_url=f"http://localhost:{os.environ['PORT_OLLAMA']}", model=os.environ["EMBEDDINGS_MODEL"])
+# llm = EvalInjectLLM(base_url=f"http://localhost:{os.environ['PORT_OLLAMA']}", model=os.environ["LLM_MODEL"])
+# embeddings = Embeddings(base_url=f"http://localhost:{os.environ['PORT_OLLAMA']}", model=os.environ["EMBEDDINGS_MODEL"])
 
 # to generate llm response await llm.gen(messages)
 # to generate vector response await embedder.gen(messages)
-
-from __future__ import annotations
-import os
-import re
-import base64
-import asyncio
-import getpass
-import subprocess
-from typing import List, Dict, Any, Optional
-
-import aiohttp
-from dotenv import load_dotenv
-
-# Environment Setup
-load_dotenv()
 
 # Configuration Constants
 GITHUB_API_VERSION = "2022-11-28"
@@ -109,8 +99,7 @@ async def analyze_repository(owner: str, repo: str) -> Dict[str, Any]:
     return {
         "structure": await repo_mgr.get_filetree(owner, repo),
         "languages": await repo_mgr.get_languages(owner, repo),
-        "documentation": await RepoAnalyzer.filter_text_files(
-            await repo_mgr.get_filetree(owner, repo))
+        "documentation": RepoAnalyzer.filter_text_files(await repo_mgr.get_filetree(owner, repo))
     }
 
 async def generate_docs_summary(owner: str, repo: str) -> str:

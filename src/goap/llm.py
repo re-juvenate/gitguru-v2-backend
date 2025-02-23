@@ -105,7 +105,7 @@ class EvalInjectLLM:
                 model=self.model,
                 messages=current_messages + [{
                     "role": "assistant", 
-                    "content": "Available Actions: "
+                    "content": "Available Actions: " + ", ".join(action.name for action in actions)
                 }],
                 stream=True
             )
@@ -140,7 +140,6 @@ class EvalInjectLLM:
                         {"role": "assistant", "content": accumulated_text},
                         {"role": "user", "content": injected_content}
                     ])
-                    print(f"Action triggered: {action_triggered.name}")
                     break  # Exit chunk loop for action handling
 
             if triggered:
