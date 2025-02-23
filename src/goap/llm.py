@@ -5,6 +5,7 @@ import asyncio
 from abc import ABC, abstractmethod
 import rank_bm25
 import numpy as np
+import re
 
 class Resolver:
     def __init__(self) -> None:
@@ -17,12 +18,13 @@ class Resolver:
         return await self._resolver[name](*args, **kwargs)
 
 class Embeddings:
-    def __init__(self,base_url ,model, **kwargs):
+    def __init__(self, base_url, model, **kwargs):
         self.client = AsyncOpenAI(base_url=base_url, **kwargs)
         self.model = model
 
-    async def gen(self, text: str):
-        return await self.client.embeddings.create(input=text, model=self.model)
+    async def gen(self, texts: list[str]) :
+        response = await self.client.embeddings.create(input=texts, model=self.model)
+        return [embedding.embedding for embedding in response.data]
 
 class EvalInjectAction(ABC):
     @abstractmethod
@@ -47,114 +49,120 @@ class EvalInjectLLM:
     
     async def gen_with_evalinject(
         self,
-        messages: list[dict],
-        actions: list[EvalInjectAction],
+        messages: List[dict],
+        actions: List[EvalInjectAction],  # Updated type hint
     ) -> AsyncGenerator[str, None]:
         current_messages = messages.copy()
+        accumulated_text = ""  # Track across iterations
+        
         while True:
             stream = await self.client.chat.completions.create(
                 model=self.model,
                 messages=current_messages,
                 stream=True
             )
+            # Reset for new stream
             accumulated_text = ""
+            triggered = False
+            
             async for chunk in stream:
                 content = chunk.choices[0].delta.content or ""
                 accumulated_text += content
-                triggered = False
-                action_vector = await asyncio.gather(*[action.evaluator(accumulated_text) for action in actions])
-                for action_index, is_triggered in enumerate(action_vector):  # Iterate over action_vector:
+                yield content  # Stream chunks immediately
 
-                    if await actions[action_index].evaluator(accumulated_text):
-                        current_messages.append({"role": "assistant", "content": accumulated_text})
-                        injected_content = await actions[action_index].injector(accumulated_text)
-                        current_messages.append({"role": "assistant", "content": injected_content})
+                # Check actions after yielding to ensure real-time streaming
+                action_results = await asyncio.gather(
+                    *[action.evaluator(accumulated_text) for action in actions]
+                )
+                
+                for action_idx, is_triggered in enumerate(action_results):
+                    if is_triggered:
+                        # Inject user message, not assistant
+                        injected_content = await actions[action_idx].injector(accumulated_text)
+                        current_messages.extend([
+                            {"role": "assistant", "content": accumulated_text},
+                            {"role": "user", "content": injected_content}  # Correct role
+                        ])
                         triggered = True
                         break
                 if triggered:
                     break
-                yield content
-            else:
-                if accumulated_text:
-                    current_messages.append({"role": "assistant", "content": accumulated_text})
-                    yield accumulated_text
-                return
+
             if not triggered:
-                return
+                # Append final assistant response
+                current_messages.append(
+                    {"role": "assistant", "content": accumulated_text}
+                )
+                break
 
 
-def BM25Action(query: str, threshold: float = 0.5) -> Callable:
-    def decorator(func: Callable[[str], Awaitable[str]]):
-        class BM25ActionWrapper(EvalInjectAction):
-            def __init__(self, func: Callable[[str], Awaitable[str]]):
-                self.func = func
-                self.query = query
-                self.threshold = threshold
+#
+class BM25Action(EvalInjectAction):
+    def __init__(
+        self,
+        query: str,
+        inject_func: Callable[[str], Awaitable[str]],
+        threshold: float = 0.5
+    ):
+        self.query_tokens = query.split()
+        self.inject_func = inject_func
+        self.threshold = threshold
 
-            async def evaluator(self, text: str) -> bool:
-                # Simple tokenization (adjust as needed)
-                tokenized_text = text.split()
-                tokenized_query = self.query.split()
-                # Build a BM25 index on a single "document" (the accumulated text)
-                bm25 = rank_bm25.BM25L([tokenized_text])
-                scores = bm25.get_scores(tokenized_query)
-                score = scores[0]
-                return score > self.threshold
+    async def evaluator(self, text: str) -> bool:
+        text_tokens = text.split()
+        if not text_tokens or not self.query_tokens:
+            return False
+            
+        bm25 = rank_bm25.BM25L([text_tokens])
+        return bm25.get_scores(self.query_tokens)[0] > self.threshold
 
-            async def injector(self, text: str) -> str:
-                return await self.func(text)
+    async def injector(self, text: str) -> str:
+        return await self.inject_func(text)
 
-        return BM25ActionWrapper(func)
-    return decorator
+class RegexAction(EvalInjectAction):
+    def __init__(
+        self,
+        pattern: str,
+        inject_func: Callable[[str], Awaitable[str]]
+    ):
+        self.pattern = re.compile(pattern)
+        self.inject_func = inject_func
 
-# Regex-based decorator
-def RegexAction(pattern: str) -> Callable:
-    compiled_pattern = re.compile(pattern)
-    def decorator(func: Callable[[str], Awaitable[str]]):
-        class RegexActionWrapper(EvalInjectAction):
-            def __init__(self, func: Callable[[str], Awaitable[str]]):
-                self.func = func
-                self.pattern = compiled_pattern
+    async def evaluator(self, text: str) -> bool:
+        return bool(self.pattern.search(text))
 
-            async def evaluator(self, text: str) -> bool:
-                return bool(self.pattern.search(text))
+    async def injector(self, text: str) -> str:
+        return await self.inject_func(text)
 
-            async def injector(self, text: str) -> str:
-                return await self.func(text)
+class SemanticAction(EvalInjectAction):
+    def __init__(
+        self,
+        query: str,
+        embeddings: Embeddings,
+        inject_func: Callable[[str], Awaitable[str]],
+        threshold: float = 0.7
+    ):
+        self.query = query
+        self.embeddings = embeddings
+        self.inject_func = inject_func
+        self.threshold = threshold
+        self._query_embedding = None
 
-        return RegexActionWrapper(func)
-    return decorator
+    async def _get_query_embedding(self) -> list[float]:
+        if not self._query_embedding:
+            self._query_embedding = (await self.embeddings.gen([self.query]))[0]
+        return self._query_embedding
 
-def SemanticAction(
-    query: str,
-    threshold: float = 0.7, embeddings: Embeddings = None,
-) -> Callable:
-    def decorator(func: Callable[[str], Awaitable[str]]):
-        class SemanticActionWrapper(EvalInjectAction):
-            def __init__(self, func: Callable[[str], Awaitable[str]]):
-                self.func = func
-                self.query = query
-                self.threshold = threshold
-                self.embeddings = embeddings
+    async def evaluator(self, text: str) -> bool:
+        query_embed = await self._get_query_embedding()
+        text_embed = (await self.embeddings.gen([text]))[0]
+        similarity = np.dot(query_embed, text_embed) / (
+            np.linalg.norm(query_embed) * np.linalg.norm(text_embed)
+        )
+        return similarity >= self.threshold
 
-            def __cosine_similarity(self, a, b):
-                return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-
-            async def evaluator(self, text: str) -> bool:
-                # Compute embeddings for the fixed query and the accumulated text.
-                query_emb = await self.embeddings.gen(self.query)
-                text_emb = await self.embeddings.gen(text)
-                # Here we assume the response is directly a list of floats.
-                sim = self.__cosine_similarity(np.array(query_emb), np.array(text_emb))
-                return sim >= self.threshold
-
-            async def injector(self, text: str) -> str:
-                return await self.func(text)
-
-        return SemanticActionWrapper(func)
-    return decorator
-
-
+    async def injector(self, text: str) -> str:
+        return await self.inject_func(text)
 
 if __name__ == "__main__":
     class MockAction(EvalInjectAction):
@@ -164,15 +172,16 @@ if __name__ == "__main__":
         async def injector(self, text: str) -> str:
             return "info: please stop using the word assist"
 
-    @BM25Action("code programming concepts")
-    async def mock_func(text: str):
-        return "info: you are writing code, use markdown format for annotating only focus on the task"
 
     async def test_gen_with_evalinject():
-        a = EvalInjectLLM("http://localhost:8080/v1", "deepseek-r1:1.5b", api_key="ollama")
-        
+        a = EvalInjectLLM("http://localhost:8081/v1", "deepseek-r1:1.5b", api_key="ollama")
+        e = Embeddings("http://localhost:8080/v1", "Snowflake Arctic Embed M", api_key="ollama")
+        async def mock_func(text: str):
+            print(text)
+            return "info: you are writing code, use markdown format for annotating only focus on the task"
+
         messages = [{"role": "user", "content": "hello, can you help me with programming a dependency injector for python?"}]
-        actions = [MockAction(), mock_func]
+        actions = [MockAction(), SemanticAction(query="code programming", embeddings=e, inject_func=mock_func)]
         
         async for content in a.gen_with_evalinject(messages, actions):
             print(content, end="")
