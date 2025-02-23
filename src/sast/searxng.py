@@ -1,3 +1,4 @@
+import os
 import aiohttp
 import asyncio
 from urllib.parse import urljoin
@@ -5,10 +6,10 @@ import json
 import argparse
 
 async def searxng_search(
-    searx_url: str,
     query: str,
     language: str = 'en-US',
-    max_results: int = 10
+    max_results: int = 10 ,
+    searx_url: str = f"http://localhost:{os.environ.get('PORT_SEARXNG')}",
 ) -> list[dict]:
     """
     Async SearxNG search returning titles/snippets/urls
