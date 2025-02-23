@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 import os
 import aiohttp
 import asyncio
+import re
 
 load_dotenv()
 
@@ -118,3 +119,13 @@ async def get_repo_language(owner, repo, issue_number=0):
                 return ["Failed to retrieve languages."]
             data = await response.json()
             return data
+
+def on_regex(regex):
+    def decorator(func):
+        def wrapper(text, *args, **kwargs):
+            if re.search(regex, text):
+                return func(*args, **kwargs)
+            return None
+        return wrapper
+    return decorator
+
