@@ -1,4 +1,6 @@
 from goap.llm import EvalInjectLLM, Embeddings, acluster, chunk, SemanticAction, RegexAction, memDB
+from sast.semgrep import SemgrepScanner
+from sast.searxng import SearxngSearch
 import asyncio
 
 llm = EvalInjectLLM(f"http://localhost:{PORT_OLLAMA}/v1", f"{LLM_MODEL}", api_key="ollama")
@@ -12,12 +14,15 @@ async def summarize(objective="", text):
     cluster_sums = await asyncio.gather(*cluster_sums)
     return await llm.gen([{"role": "user", "content": f"Summarize the following {objective}, be specific and capture the details: {' -- '.join(cluster_sums)}"}])
 
-# 
-async def extract(objective: str, texts: list[str], *args):
+async def filter_vec(texts: list[str], objective: str, k=10):
     vecs = await embeddings.gen(texts)
     db = memDB()
     db.extend(texts, vecs)
-    top_texts = db.search(objective, 10)
+    top_texts = db.search(objective, k)
+    return top_texts
+
+async def extract(objective: str, texts: list[str], *args):
+    top_texts = await filter_vec(texts, objective)
     extra_args = " ".join(args)
     return await llm.gen([{"role": "user", "content": f"Filter and extract the most suitable {objective} for {extra_args} from the following texts: {' -- '.join(top_texts)}"}])
 
@@ -28,6 +33,21 @@ async def extract_and_summarize(objective: str, texts: list[str], *args):
     top_texts = db.search(objective, 10)
     extra_args = " ".join(args)
     return await summarize(objective+extra_args, await extract(objective, top_texts, *args))
+
+async def select(texts: list[str], *args):
+    extra_args = " ".join(args)
+    top_texts = await filter_vec(texts, extra_args)
+    top_text_reasoning = [llm.gen([{"role": "user", "content": f"Tell me why {text} would be a good {extra_args}"}]) for text in top_texts]
+    top_text_reasoning = await asyncio.gather(*top_text_reasoning)
+    mapping = dict(zip(top_text_reasoning, top_texts))
+    top_texts_by_reasoning = await filter_vec(top_text_reasoning, extra_args)
+    return mapping[top_texts_by_reasoning[0]]
+
+
+    
+
+
+
 
 
 

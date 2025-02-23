@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 import json
 import argparse
 
-async def searxng_search(
+async def SearxngSearch(
     query: str,
     language: str = 'en-US',
     max_results: int = 10 ,
