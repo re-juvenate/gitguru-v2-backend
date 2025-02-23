@@ -20,12 +20,12 @@ async def get_fixes(request: models.RepoRequest):
 
     return {"fixes": "These are placeholder fixes."}
 
+@router.post("/instructions")
+async def instructions(request: models.RepoRequest):
+
+    return {"instructions": "These are placeholder instructions."}
+
 @router.post("/chat")
 async def chat(request: models.RepoRequest):
 
     return {"chat": "This is a placeholder chat response."}
-
-@router.post("/instructions")
-async def instructions(request: models.RepoRequest):
-    
-    return {"instructions": "These are placeholder instructions."}
