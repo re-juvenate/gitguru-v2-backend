@@ -42,56 +42,118 @@ class EvalInjectLLM:
         print(response.choices[0].message.content)
         return response.choices[0].message.content
     
-    async def gen_with_evalinject(
-        self,
-        messages: List[dict],
-        actions: List[EvalInjectAction],  # Updated type hint
-    ) -> AsyncGenerator[str, None]:
+    # async def gen_with_evalinject(
+    #     self,
+    #     messages: List[dict],
+    #     actions: List[EvalInjectAction],  # Updated type hint
+    # ) -> AsyncGenerator[str, None]:
+    #     current_messages = messages.copy()
+    #     accumulated_text = ""  # Track across iterations
+    #     current_actions = actions
+    #     print("".join(action.name for action in current_actions))
+    #     while True:
+    #         stream = await self.client.chat.completions.create(
+    #             model=self.model,
+    #             messages=current_messages+[{"role": "assistant", "content": "Actions (you can use them by talking about them): "}],
+    #             stream=True
+    #         )
+    #         # Reset for new stream
+    #         accumulated_text = ""
+    #         triggered = False
+            
+    #         n=0
+    #         async for chunk in stream:
+    #             content = chunk.choices[0].delta.content or ""
+    #             accumulated_text += content
+    #             yield content
+    #             if n<6:
+    #                 n=n+1
+    #                 continue
+    #             action_results = await asyncio.gather(
+    #                 *[action.evaluator(accumulated_text) for action in actions]
+    #             )
+    #             # print(action_results)
+    #             for action_idx, is_triggered in enumerate(action_results):
+    #                 triggered = is_triggered
+    #                 if is_triggered:
+    #                     action = actions[action_idx]
+    #                     injected_content = await action.injector(accumulated_text)
+    #                     current_messages.extend([
+    #                         {"role": "assistant", "content": accumulated_text},
+    #                         {"role": "user", "content": injected_content}  # Correct role
+    #                     ])
+    #                     n = n-1
+    #                     print(f"Action triggered: {actions[action_idx].name}")
+    #                     break
+    #         if triggered:
+    #             break
+
+    #         if not triggered:
+    #             # Append final assistant response
+    #             current_messages.append(
+    #                 {"role": "assistant", "content": accumulated_text}
+    #             )
+    #             break
+    #     print(current_messages)
+
+    async def gen_with_evalinject(self,messages: list[dict],actions: List[EvalInjectAction],) -> AsyncGenerator[str, None]:
         current_messages = messages.copy()
-        accumulated_text = ""  # Track across iterations
-        current_actions = actions
-        print("".join(action.name for action in current_actions))
+        accumulated_text = ""
+        
         while True:
             stream = await self.client.chat.completions.create(
                 model=self.model,
-                messages=current_messages+[{"role": "assistant", "content": "Actions (you can use them by talking about them): "}],
+                messages=current_messages + [{
+                    "role": "assistant", 
+                    "content": "Available Actions: "
+                }],
                 stream=True
             )
-            # Reset for new stream
+            
             accumulated_text = ""
             triggered = False
+            action_triggered = None
+            n = 0
             
-            n=0
             async for chunk in stream:
                 content = chunk.choices[0].delta.content or ""
                 accumulated_text += content
-                yield content
-                if n<6:
+                yield content  # Stream out the response
+                if (n := n + 1) % 6 != 0:
                     continue
                 action_results = await asyncio.gather(
-                    *[action.evaluator(accumulated_text) for action in actions]
+                    *(action.evaluator(accumulated_text) for action in actions),
+                    return_exceptions=True  # Prevent single failure from breaking all
                 )
-                print(action.name)
-                for action_idx, is_triggered in enumerate(action_results):
-                    triggered = is_triggered
-                    if is_triggered:
-                        # Inject user message, not assistant
-                        action = actions[action_idx]
-                        injected_content = await action.injector(accumulated_text)
-                        current_messages.extend([
-                            {"role": "assistant", "content": accumulated_text},
-                            {"role": "user", "content": injected_content}  # Correct role
-                        ])
+                for action, result in zip(actions, action_results):
+                    if isinstance(result, Exception):
+                        continue  # Or handle errors as needed
+                    if result:
+                        action_triggered = action
+                        triggered = True
                         break
-            if triggered:
-                break
+                    
+                if triggered:
+                    # Handle the action injection
+                    injected_content = await action_triggered.injector(accumulated_text)
+                    current_messages.extend([
+                        {"role": "assistant", "content": accumulated_text},
+                        {"role": "user", "content": injected_content}
+                    ])
+                    print(f"Action triggered: {action_triggered.name}")
+                    break  # Exit chunk loop for action handling
 
-            if not triggered:
-                # Append final assistant response
-                current_messages.append(
-                    {"role": "assistant", "content": accumulated_text}
-                )
-                break
+            if triggered:
+                continue  # Restart main loop with updated messages
+                
+            # Finalize non-triggered completion
+            current_messages.append({
+                "role": "assistant", 
+                "content": accumulated_text
+            })
+            break
+
+        print("Final message chain:", current_messages)
 
 class BaseActionWrapper(EvalInjectAction):
     """Base class for action wrappers to reduce code duplication"""
@@ -146,7 +208,7 @@ def RegexAction(name: str, pattern: str):
 
 def SemanticAction(name:str, 
     query: str,
-    threshold: float = 0.7,
+    threshold: float = 0.9,
     *,  # Force keyword-only args after this point
     embeddings: Embeddings  # Required parameter
 ) :
@@ -179,25 +241,23 @@ def SemanticAction(name:str,
     return decorator
 
 if __name__ == "__main__":
-    class MockAction(EvalInjectAction):
-        async def evaluator(self, text: str) -> bool:
-            return "assistance" in text
 
-        async def injector(self, text: str) -> str:
-            return "info: please stop using the word assist"
+    @BM25Action("stop_helping", "fuck you hate retard")
+    async def stop_helping(text: str):
+        return "info: please stop using the word assist"
 
 
     async def test_gen_with_evalinject():
         a = EvalInjectLLM("http://localhost:8081/v1", "deepseek-r1:1.5b", api_key="ollama")
         e = Embeddings("http://localhost:8080/v1", "Snowflake Arctic Embed M", api_key="ollama")
         
-        @SemanticAction("code_formatting", query="code programming forrmat ```", embeddings=e)
+        @SemanticAction("code_formatting", query="code programming format ```", embeddings=e)
         async def mock_func(text: str):
             print(text)
             return "info: you are writing code, use markdown format for annotating only focus on the task"
 
         messages = [{"role": "user", "content": "hello, can you help me with programming a dependency injector for python? Also fuck you"}]
-        actions = [MockAction("stop assisting"), mock_func]
+        actions = [stop_helping, mock_func]
         
         async for content in a.gen_with_evalinject(messages, actions):
             print(content, end="")
