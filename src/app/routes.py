@@ -5,12 +5,27 @@ from app import models, functions
 
 router = APIRouter()
 
-@router.post("/summary")
-async def get_summary(request: models.RepoRequest):
+@router.post("/sum-repo")
+async def get_repo_summary(request: models.RepoRequest):
 
-    return {"result": "This is a placeholder summary."}
+    return {"summary": "This is a placeholder summary for the repository."}
+
+@router.post("/sum-issue")
+async def get_issue_summary(request: models.RepoRequest):
+
+    return {"summary": "This is a placeholder summary for the issue."}
 
 @router.post("/fixes")
 async def get_fixes(request: models.RepoRequest):
 
-    return {"result": "These are placeholder fixes."}
+    return {"fixes": "These are placeholder fixes."}
+
+@router.post("/chat")
+async def chat(request: models.RepoRequest):
+
+    return {"chat": "This is a placeholder chat response."}
+
+@router.post("/instructions")
+async def instructions(request: models.RepoRequest):
+    
+    return {"instructions": "These are placeholder instructions."}
