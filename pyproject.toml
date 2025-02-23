@@ -7,7 +7,7 @@ authors = [
 ]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<4"
 dependencies = [
     "pydantic (>=2.10.6,<3.0.0)",
     "fastapi (>=0.115.8,<0.116.0)",
@@ -17,7 +17,8 @@ dependencies = [
     "gunicorn (>=23.0.0,<24.0.0)",
     "dotenv (>=0.9.9,<0.10.0)",
     "aiohttp (>=3.11.12,<4.0.0)",
-    "openai (>=1.63.2,<2.0.0)"
+    "openai (>=1.63.2,<2.0.0)",
+    "semgrep (>=1.109.0,<2.0.0)"
 ]
 
 
