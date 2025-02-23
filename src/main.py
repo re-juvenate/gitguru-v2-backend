@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from app.routes import router
-from linter.mega import linter
 
 
 app = FastAPI()
@@ -23,7 +22,6 @@ app.add_middleware(
 )
 
 app.include_router(router)
-app.include_router(linter)
 
 
 if __name__ == "__main__":

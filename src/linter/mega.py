@@ -1,35 +1,33 @@
-from fastapi import FastAPI, HTTPException
 import docker
-import tempfile
 import shutil
 import os
 
-linter = FastAPI()
-
-@linter.post("/lint")
-async def clone_and_lint(repo_url: str):
-    # Create a temporary directory to clone the repo
-    temp_dir = tempfile.mkdtemp()
+def clone_and_lint(repo_url: str, linter_config_path: str = './src/linter/.mega-linter.yml'):
+    # Use a 'temp' directory in the same directory as the script
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    temp_dir = os.path.join(current_dir, 'temp')
     lint_errors_file = os.path.join(temp_dir, 'lint_errors.txt')
-    mega_linter_config_path = './.mega-linter.yml'
 
     try:
+        # Ensure the temp directory exists
+        os.makedirs(temp_dir, exist_ok=True)
+
         # Clone the repository
         clone_cmd = ["git", "clone", repo_url, temp_dir]
         clone_process = os.system(' '.join(clone_cmd))
         
         if clone_process != 0:
-            raise HTTPException(status_code=400, detail="Error cloning repository")
+            raise Exception("Error cloning repository")
         
         # Copy .mega-linter.yml file into the cloned repository
-        shutil.copy(mega_linter_config_path, temp_dir)
+        shutil.copy(linter_config_path, temp_dir)
         
         # Initialize Docker client
         client = docker.from_env()
         
         # Run MegaLinter container
         container = client.containers.run(
-            "oxsecurity/megalinter:v8",
+            "oxsecurity/megalinter/flavors/formatters:v8",
             volumes={
                 temp_dir: {'bind': '/tmp/lint', 'mode': 'rw'},
                 '/var/run/docker.sock': {'bind': '/var/run/docker.sock', 'mode': 'rw'}
@@ -52,12 +50,17 @@ async def clone_and_lint(repo_url: str):
             file.write(logs)
         
         # Return the path to the linting errors file
-        return {"linting_errors_file": lint_errors_file}
+        # return lint_errors_file
+        return logs
     
     except docker.errors.ContainerError as e:
-        raise HTTPException(status_code=400, detail=f"Error running MegaLinter: {str(e)}")
+        raise Exception(f"Error running MegaLinter: {str(e)}")
     finally:
-        # Cleanup temporary directory
+        # Cleanup temp directory
         shutil.rmtree(temp_dir)
 
-# Run the app with: uvicorn myapp:app --reload
+
+# Example usage
+repo_url = "https://github.com/ankitprasad2005/chess_err_hexa"
+lint_errors_file_path = clone_and_lint(repo_url)
+print(f"Linting errors saved to: {lint_errors_file_path}")

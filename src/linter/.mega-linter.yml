@@ -1,5 +1,5 @@
+# .mega-linter.yml
 ---
-MULTI_LINTERS:
-  enable:
-    - ESLINT
-    - FLAKE8
+ENABLE:
+  - ESLINT
+  - FLAKE8
